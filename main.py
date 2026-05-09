@@ -134,7 +134,9 @@ threading.Thread(target=lambda: HTTPServer(
 for f in [DATA_FILE, USER_FILE]:
     if not os.path.exists(f):
         with open(f,"w",encoding="utf-8") as fp: json.dump({}, fp)
-
+json
+time_series.json
+291.0B
 def load_json(file):
     try:
         with open(file,"r",encoding="utf-8") as f: return json.load(f)
@@ -270,7 +272,6 @@ def get_vip_session_count(uid):
 import time as _time
 _candle_cache: dict = {}
 _candle_lock  = Lock()
-
 async def _do_fetch_candles_async(session: aiohttp.ClientSession, pair: str):
     now = _time.time()
 
@@ -360,7 +361,7 @@ async def fetch_candles_async(session: aiohttp.ClientSession, pair: str, count=5
 
 async def fetch_realtime_price_async(session: aiohttp.ClientSession, pair: str):
     # PRIMARY: Yahoo Finance
-    try:
+try:
         sym = pair + "=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1m&range=1d"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -450,7 +451,7 @@ async def _analyze_tier_async(session: aiohttp.ClientSession, pair: str, tier: i
 
         if tier==1:
             if strength<5: return None,0,None
-            if call>put and rsi>70: return None,0,None
+if call>put and rsi>70: return None,0,None
             if put>call and rsi<30: return None,0,None
             if call>put and recent_up<3: return None,0,None
             if put>call and recent_up>2: return None,0,None
@@ -552,7 +553,6 @@ def build_prompt(uid):
     modes={"funny":" মজা করে বলো।","savage":" Bold ভাবে বলো।",
            "emotional":" আবেগের সাথে বলো।","genius":" Expert level এ বলো।"}
     return base+modes.get(mode,"")
-
 async def groq_reply(message:str, uid:str) -> str:
     if not GROQ_KEY:
         return "⚠️ AI সেবা এই মুহূর্তে বন্ধ।"
@@ -646,7 +646,7 @@ def brain(text, uid):
     if any(w in msg for w in ["payment","পেমেন্ট","pay"]):
         return (f"💰 Payment:\n📱 bKash: {PAYMENT_INFO['bkash']}\n"
                 f"📱 Nagad: {PAYMENT_INFO['nagad']}\n💳 Binance: {PAYMENT_INFO['binance']}")
-    if any(w in msg for w in ["vip","ভিআইপি"]):
+if any(w in msg for w in ["vip","ভিআইপি"]):
         return f"💎 VIP মাত্র {VIP_PRICE} টাকা/মাস! দিনে ১৫টা signal। /buy"
     if "time" in msg or "সময়" in msg: return f"⏰ ঢাকার সময়: {get_time_str()}"
     if "bye" in msg or "বিদায়" in msg: return r("আল্লাহ হাফেজ! 👋")
@@ -739,7 +739,7 @@ async def _activate_vip(bot, target_id:int, method:str=""):
             chat_id=target_id,
             text=(
                 "🎉 অভিনন্দন! তুমি এখন 💎 VIP Member!\n\n"
-                "⏰ সকাল ৭–১২ | দুপুর ১–৪ | সন্ধ্যা ৭–৯:৩০\n"
+"⏰ সকাল ৭–১২ | দুপুর ১–৪ | সন্ধ্যা ৭–৯:৩০\n"
                 f"✅ {VIP_SIGNALS}×৩ = {VIP_SIGNALS*3} signal/দিন\n\n"
                 f"/signal_dao লিখে শুরু করো! 🔥\n{OWNER_USERNAME}"
             )
@@ -841,8 +841,7 @@ async def run_signal_session(update:Update, uid:str):
                 )
 
                 await asyncio.sleep(wait_sec+1)
-
-                entry_price = None
+entry_price = None
                 for _ in range(3):
                     entry_price = await fetch_realtime_price_async(http_session, pair)
                     if entry_price: break
@@ -934,8 +933,7 @@ async def payment_callback(update, context):
             [InlineKeyboardButton("🔙 বাতিল",callback_data="pay_cancel")],
         ])
         await query.edit_message_text(f"💎 VIP — {VIP_PRICE} টাকা/মাস\nAmount সিলেক্ট করো:", reply_markup=kb)
-
-    elif data in ["pay_bkash","pay_nagad","pay_binance"]:
+elif data in ["pay_bkash","pay_nagad","pay_binance"]:
         method = data.replace("pay_","")
         if uid in pending_payment: pending_payment[uid]["method"]=method
         pending_txn[uid] = {"method":method,"amount":pending_payment.get(uid,{}).get("amount",VIP_PRICE)}
@@ -1023,7 +1021,7 @@ async def handle_txn_id(update:Update, context:ContextTypes.DEFAULT_TYPE, uid:st
 async def handle_screenshot(update:Update, context:ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.photo: return
     user  = update.message.from_user
-    photo = update.message.photo[-1].file_id
+photo = update.message.photo[-1].file_id
     try:
         await context.bot.send_photo(
             chat_id=ADMIN_ID, photo=photo,
@@ -1115,8 +1113,7 @@ async def handle_admin_callback(query, context, data):
             "Broadcast:\n"
             "Admin panel → Admin Message → সব user কে message"
         )
-
-    elif data=="admin_broadcast":
+elif data=="admin_broadcast":
         admin_set_mode[str(ADMIN_ID)] = "broadcast"
         await query.edit_message_text(
             "📢 সব user কে পাঠাতে চাও?\n\n"
@@ -1293,7 +1290,7 @@ async def voice_reply(update:Update, context:ContextTypes.DEFAULT_TYPE):
 # =========================
 def main():
     app = (
-        ApplicationBuilder()
+ApplicationBuilder()
         .token(TOKEN)
         .concurrent_updates(True)
         .build()
@@ -1313,5 +1310,5 @@ def main():
     print("✅ Claw VIP Bot চালু! [Railway 24/7 Mode]")
     app.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
+if name == "main":
     main()
