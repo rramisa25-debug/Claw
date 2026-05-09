@@ -16,26 +16,27 @@ from telegram.ext import (
 )
 
 # =========================
-# Config — সব keys Railway ENV থেকে আসে
+# Config
 # =========================
-TOKEN    = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.environ["ADMIN_ID"])
-GROUP_ID = os.environ.get("GROUP_ID", "@jjSERVICE_SMM_FATHER")
+TOKEN    = "8741499786:AAFKFFPSl7Ffc8sAuDL9UaxR8tPdCNU5CQM"
+ADMIN_ID = 7974704580
+GROUP_ID = "@jjSERVICE_SMM_FATHER"
 
-TWELVE_KEY = os.environ.get("TWELVE_KEY", "")
-ALPHA_KEYS = [k.strip() for k in os.environ.get("ALPHA_KEYS", "").split(",") if k.strip()]
+TWELVE_KEY = "25d98f4edeed4afca3fc847598557d76"
+ALPHA_KEYS = [
+    "5K499BSXFQ1E8QZH","ZG8IC3OVLL0C2WMU",
+    "I1JEU7U6UJNWY6FZ","IN0P3RSEQVNPJ0R8","NAQK3YVWXERVQZVH",
+]
 _alpha_idx = 0
 _alpha_lock = threading.Lock()
 def get_alpha_key():
     global _alpha_idx
     with _alpha_lock:
-        if not ALPHA_KEYS:
-            return ""
         key = ALPHA_KEYS[_alpha_idx % len(ALPHA_KEYS)]
         _alpha_idx += 1
     return key
 
-GROQ_KEY   = os.environ.get("GROQ_KEY", "")
+GROQ_KEY   = "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"
 GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
@@ -43,13 +44,13 @@ DATA_FILE = "data.json"
 USER_FILE = "ultra_users.json"
 
 PAYMENT_INFO = {
-    "bkash":   os.environ.get("BKASH_NUMBER",   "01759852112"),
-    "nagad":   os.environ.get("NAGAD_NUMBER",    "01625141477"),
-    "binance": os.environ.get("BINANCE_ID",      "1234939031"),
+    "bkash":   "01759852112",
+    "nagad":   "01625141477",
+    "binance": "1234939031",
 }
-VIP_PRICE        = int(os.environ.get("VIP_PRICE", "500"))
-SUPPORT_USERNAME = os.environ.get("SUPPORT_USERNAME", "@SOPPORT_CLAW_BOT")
-OWNER_USERNAME   = os.environ.get("OWNER_USERNAME",   "@SW_WAFI")
+VIP_PRICE        = 500
+SUPPORT_USERNAME = "@SOPPORT_CLAW_BOT"
+OWNER_USERNAME   = "@SW_WAFI"
 
 REAL_PAIRS = [
     "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD",
@@ -70,12 +71,12 @@ admin_set_mode:         dict = {}
 pending_txn:            dict = {}
 
 # =========================
-# File lock
+# ✅ FIX 1: File lock — ৩০০+ জন একসাথে লিখলে corrupt হবে না
 # =========================
 _file_lock = Lock()
 
 # =========================
-# In-memory cache
+# ✅ FIX 2: In-memory user cache — বারবার disk read বন্ধ
 # =========================
 _user_cache: dict = {}
 _data_cache: dict = {}
@@ -116,7 +117,7 @@ def can_signal(user_id):
     return False, next_session_str(VIP_SESSIONS)
 
 # =========================
-# Keep-Alive (Railway এর জন্য)
+# Keep-Alive
 # =========================
 class KeepAlive(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -125,7 +126,7 @@ class KeepAlive(BaseHTTPRequestHandler):
     def log_message(self, f, *a): pass
 
 threading.Thread(target=lambda: HTTPServer(
-    ("0.0.0.0", int(os.environ.get("PORT", 8080))), KeepAlive
+    ("0.0.0.0", int(os.environ.get("PORT",8080))), KeepAlive
 ).serve_forever(), daemon=True).start()
 
 # =========================
@@ -134,15 +135,14 @@ threading.Thread(target=lambda: HTTPServer(
 for f in [DATA_FILE, USER_FILE]:
     if not os.path.exists(f):
         with open(f,"w",encoding="utf-8") as fp: json.dump({}, fp)
-json
-time_series.json
-291.0B
+
 def load_json(file):
     try:
         with open(file,"r",encoding="utf-8") as f: return json.load(f)
     except: return {}
 
 def save_json(file, data):
+    # ✅ Atomic write — partial write এ corrupt হবে না
     tmp = file + ".tmp"
     with open(tmp,"w",encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -157,7 +157,7 @@ async def save_json_async(file, data):
         save_json(file, data)
 
 # =========================
-# User System
+# ✅ FIX 3: User System — async + memory cache
 # =========================
 def _make_default_user():
     return {
@@ -192,9 +192,11 @@ async def get_user_async(uid):
 
 async def update_user_async(uid, key, value):
     uid = str(uid)
+    # Update cache first (instant)
     if uid not in _user_cache:
         await get_user_async(uid)
     _user_cache[uid][key] = value
+    # Write to disk with lock
     async with _file_lock:
         data = load_json(USER_FILE)
         if uid not in data:
@@ -267,17 +269,23 @@ def get_vip_session_count(uid):
                 if s in ("morning","afternoon","evening")])
 
 # =========================
-# Market Data — async (Yahoo Primary, Twelve/Alpha backup)
+# ✅ FIX 4: Market Data — aiohttp (async, non-blocking)
+# সব user এর API call একসাথে চলবে, কেউ block হবে না
 # =========================
 import time as _time
 _candle_cache: dict = {}
 _candle_lock  = Lock()
+
 async def _do_fetch_candles_async(session: aiohttp.ClientSession, pair: str):
+    """
+    ✅ Yahoo Finance PRIMARY — Free, Unlimited, No API key
+    Twelve Data + Alpha Vantage BACKUP
+    """
     now = _time.time()
 
-    # PRIMARY: Yahoo Finance — Free, Unlimited
+    # ✅ PRIMARY: Yahoo Finance — Free, Unlimited, Real forex
     try:
-        sym = pair + "=X"
+        sym = pair + "=X"  # EURUSD=X format
         url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
                f"?interval=1m&range=1d")
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -308,46 +316,43 @@ async def _do_fetch_candles_async(session: aiohttp.ClientSession, pair: str):
     except: pass
 
     # BACKUP: Twelve Data
-    if TWELVE_KEY:
-        try:
-            sym = f"{pair[:3]}/{pair[3:]}"
-            url = (f"https://api.twelvedata.com/time_series"
-                   f"?symbol={sym}&interval=1min&outputsize=60&apikey={TWELVE_KEY}")
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
-                res = await resp.json(content_type=None)
-            if "values" in res:
-                candles = [
-                    {"open":float(v["open"]),"high":float(v["high"]),
-                     "low":float(v["low"]),"close":float(v["close"])}
-                    for v in reversed(res["values"])
-                ]
-                if len(candles) >= 20:
-                    async with _candle_lock:
-                        _candle_cache[pair] = (candles, now)
-                    return candles
-        except: pass
+    try:
+        sym = f"{pair[:3]}/{pair[3:]}"
+        url = (f"https://api.twelvedata.com/time_series"
+               f"?symbol={sym}&interval=1min&outputsize=60&apikey={TWELVE_KEY}")
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
+            res = await resp.json(content_type=None)
+        if "values" in res:
+            candles = [
+                {"open":float(v["open"]),"high":float(v["high"]),
+                 "low":float(v["low"]),"close":float(v["close"])}
+                for v in reversed(res["values"])
+            ]
+            if len(candles) >= 20:
+                async with _candle_lock:
+                    _candle_cache[pair] = (candles, now)
+                return candles
+    except: pass
 
     # BACKUP: Alpha Vantage
-    alpha_key = get_alpha_key()
-    if alpha_key:
-        try:
-            url = (f"https://www.alphavantage.co/query?function=FX_INTRADAY"
-                   f"&from_symbol={pair[:3]}&to_symbol={pair[3:]}"
-                   f"&interval=1min&outputsize=compact&apikey={alpha_key}")
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                res = await resp.json(content_type=None)
-            ts = res.get("Time Series FX (1min)",{})
-            if ts:
-                candles = [
-                    {"open":float(v["1. open"]),"high":float(v["2. high"]),
-                     "low":float(v["3. low"]),"close":float(v["4. close"])}
-                    for _,v in sorted(ts.items())
-                ]
-                if len(candles) >= 20:
-                    async with _candle_lock:
-                        _candle_cache[pair] = (candles, now)
-                    return candles
-        except: pass
+    try:
+        url = (f"https://www.alphavantage.co/query?function=FX_INTRADAY"
+               f"&from_symbol={pair[:3]}&to_symbol={pair[3:]}"
+               f"&interval=1min&outputsize=compact&apikey={get_alpha_key()}")
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            res = await resp.json(content_type=None)
+        ts = res.get("Time Series FX (1min)",{})
+        if ts:
+            candles = [
+                {"open":float(v["1. open"]),"high":float(v["2. high"]),
+                 "low":float(v["3. low"]),"close":float(v["4. close"])}
+                for _,v in sorted(ts.items())
+            ]
+            if len(candles) >= 20:
+                async with _candle_lock:
+                    _candle_cache[pair] = (candles, now)
+                return candles
+    except: pass
     return None
 
 async def fetch_candles_async(session: aiohttp.ClientSession, pair: str, count=50):
@@ -360,8 +365,12 @@ async def fetch_candles_async(session: aiohttp.ClientSession, pair: str, count=5
     return candles[-count:] if candles else None
 
 async def fetch_realtime_price_async(session: aiohttp.ClientSession, pair: str):
+    """
+    ✅ Yahoo Finance realtime price — Free, Unlimited
+    Win/Loss এর জন্য সঠিক forex price
+    """
     # PRIMARY: Yahoo Finance
-try:
+    try:
         sym = pair + "=X"
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1m&range=1d"
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -375,15 +384,14 @@ try:
             if closes: return float(closes[-1])
     except: pass
     # BACKUP: Twelve Data
-    if TWELVE_KEY:
-        try:
-            sym = f"{pair[:3]}/{pair[3:]}"
-            url = f"https://api.twelvedata.com/price?symbol={sym}&apikey={TWELVE_KEY}"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                res = await resp.json(content_type=None)
-            if "price" in res: return float(res["price"])
-        except: pass
-    # BACKUP: cache
+    try:
+        sym = f"{pair[:3]}/{pair[3:]}"
+        url = f"https://api.twelvedata.com/price?symbol={sym}&apikey={TWELVE_KEY}"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+            res = await resp.json(content_type=None)
+        if "price" in res: return float(res["price"])
+    except: pass
+    # BACKUP: cache থেকে
     try:
         candles = await fetch_candles_async(session, pair, 1)
         if candles: return candles[-1]["close"]
@@ -391,7 +399,7 @@ try:
     return None
 
 # =========================
-# Indicators
+# Indicators (unchanged)
 # =========================
 def calculate_rsi(closes, period=14):
     if len(closes) < period+1: return 50
@@ -451,7 +459,7 @@ async def _analyze_tier_async(session: aiohttp.ClientSession, pair: str, tier: i
 
         if tier==1:
             if strength<5: return None,0,None
-if call>put and rsi>70: return None,0,None
+            if call>put and rsi>70: return None,0,None
             if put>call and rsi<30: return None,0,None
             if call>put and recent_up<3: return None,0,None
             if put>call and recent_up>2: return None,0,None
@@ -472,6 +480,7 @@ if call>put and rsi>70: return None,0,None
         return signal, acc, closes[-1]
     except: return None,0,None
 
+# ✅ FIX 5: smart_scan async — সব pair একসাথে scan (parallel)
 async def smart_scan_async(session: aiohttp.ClientSession, pairs: list, needed: int):
     result   = []
     shuffled = pairs[:]
@@ -483,6 +492,7 @@ async def smart_scan_async(session: aiohttp.ClientSession, pairs: list, needed: 
         already   = {p for p,_,_,_ in result}
         candidates = [p for p in shuffled if p not in already]
 
+        # ✅ সব pair একসাথে analyze — parallel
         tasks = [_analyze_tier_async(session, pair, tier) for pair in candidates]
         results_raw = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -553,9 +563,9 @@ def build_prompt(uid):
     modes={"funny":" মজা করে বলো।","savage":" Bold ভাবে বলো।",
            "emotional":" আবেগের সাথে বলো।","genius":" Expert level এ বলো।"}
     return base+modes.get(mode,"")
+
+# ✅ FIX 6: groq_reply — aiohttp async (block করবে না)
 async def groq_reply(message:str, uid:str) -> str:
-    if not GROQ_KEY:
-        return "⚠️ AI সেবা এই মুহূর্তে বন্ধ।"
     allowed,_ = check_ai_limit(uid)
     if not allowed:
         return f"⛔ আজকের AI limit শেষ (৫টা/দিন)।\n💎 VIP নিলে unlimited!\n/buy"
@@ -646,7 +656,7 @@ def brain(text, uid):
     if any(w in msg for w in ["payment","পেমেন্ট","pay"]):
         return (f"💰 Payment:\n📱 bKash: {PAYMENT_INFO['bkash']}\n"
                 f"📱 Nagad: {PAYMENT_INFO['nagad']}\n💳 Binance: {PAYMENT_INFO['binance']}")
-if any(w in msg for w in ["vip","ভিআইপি"]):
+    if any(w in msg for w in ["vip","ভিআইপি"]):
         return f"💎 VIP মাত্র {VIP_PRICE} টাকা/মাস! দিনে ১৫টা signal। /buy"
     if "time" in msg or "সময়" in msg: return f"⏰ ঢাকার সময়: {get_time_str()}"
     if "bye" in msg or "বিদায়" in msg: return r("আল্লাহ হাফেজ! 👋")
@@ -739,7 +749,7 @@ async def _activate_vip(bot, target_id:int, method:str=""):
             chat_id=target_id,
             text=(
                 "🎉 অভিনন্দন! তুমি এখন 💎 VIP Member!\n\n"
-"⏰ সকাল ৭–১২ | দুপুর ১–৪ | সন্ধ্যা ৭–৯:৩০\n"
+                "⏰ সকাল ৭–১২ | দুপুর ১–৪ | সন্ধ্যা ৭–৯:৩০\n"
                 f"✅ {VIP_SIGNALS}×৩ = {VIP_SIGNALS*3} signal/দিন\n\n"
                 f"/signal_dao লিখে শুরু করো! 🔥\n{OWNER_USERNAME}"
             )
@@ -766,7 +776,8 @@ async def _activate_vip(bot, target_id:int, method:str=""):
     except: pass
 
 # =========================
-# Signal Session
+# ✅ FIX 7: Signal Session — fully async with aiohttp session
+# ৩০০+ user একসাথে signal নিলেও সার্ভার crash করবে না
 # =========================
 async def run_signal_session(update:Update, uid:str):
     if uid in active_sessions:
@@ -806,6 +817,7 @@ async def run_signal_session(update:Update, uid:str):
         pairs = REAL_PAIRS.copy(); random.shuffle(pairs)
         await update.message.reply_text("📡 Market scan করছি...")
 
+        # ✅ একটা aiohttp session পুরো signal flow এ reuse
         async with aiohttp.ClientSession() as http_session:
             signal_list = await smart_scan_async(http_session, pairs, per_session)
 
@@ -841,7 +853,8 @@ async def run_signal_session(update:Update, uid:str):
                 )
 
                 await asyncio.sleep(wait_sec+1)
-entry_price = None
+
+                entry_price = None
                 for _ in range(3):
                     entry_price = await fetch_realtime_price_async(http_session, pair)
                     if entry_price: break
@@ -871,29 +884,31 @@ entry_price = None
                 if is_win is None: continue
 
                 dir_str = "CALL ⬆️" if signal_type=="CALL" else "PUT ⬇️"
-                result_text = "WIN ✅" if is_win else "Loss ❌"
                 await update.message.reply_text(
-                    f"🗓 {pair} — {dir_str} {result_text}"
+                    f"🗓 {pair} — {dir_str} {'WIN ✅' if is_win else 'Loss ❌'}"
                 )
 
-                if is_win: session_win+=1
-                else: session_loss+=1
-                update_user(uid,"win",get_user(uid).get("win",0)+(1 if is_win else 0))
-                update_user(uid,"loss",get_user(uid).get("loss",0)+(0 if is_win else 1))
+                if is_win:
+                    session_win+=1
+                    await update_user_async(uid,"win",get_user(uid).get("win",0)+1)
+                else:
+                    session_loss+=1
+                    await update_user_async(uid,"loss",get_user(uid).get("loss",0)+1)
 
-                if signal_list.index((pair,signal_type,accuracy,entry_est)) < len(signal_list)-1:
-                    await asyncio.sleep(3)
+                await update_user_async(uid,"signal_count",get_user(uid).get("signal_count",0)+1)
+                add_xp(uid,5)
+                await asyncio.sleep(3)
 
-        await update.message.reply_text(session_summary(session_win, session_loss))
+        await update.message.reply_text(session_summary(session_win,session_loss))
 
     except Exception as e:
-        print(f"Signal session error: {e}")
-        await update.message.reply_text("⚠️ Signal session এ সমস্যা হয়েছে। আবার try করুন।")
+        print(f"Signal error uid={uid}: {e}")
+        await update.message.reply_text("⚠️ সমস্যা হয়েছে। আবার try করো।")
     finally:
         active_sessions.discard(uid)
 
 # =========================
-# Buy
+# Payment System
 # =========================
 async def buy(update:Update, context:ContextTypes.DEFAULT_TYPE):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -918,7 +933,7 @@ async def payment_callback(update, context):
     data  = query.data; uid = str(query.from_user.id)
 
     if data=="pay_amt_500":
-        pending_payment[uid]={"method":"pending","amount":VIP_PRICE}
+        pending_payment[uid]={"method":"pending","amount":500}
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 bKash",   callback_data="pay_bkash")],
             [InlineKeyboardButton("📱 Nagad",   callback_data="pay_nagad")],
@@ -933,7 +948,8 @@ async def payment_callback(update, context):
             [InlineKeyboardButton("🔙 বাতিল",callback_data="pay_cancel")],
         ])
         await query.edit_message_text(f"💎 VIP — {VIP_PRICE} টাকা/মাস\nAmount সিলেক্ট করো:", reply_markup=kb)
-elif data in ["pay_bkash","pay_nagad","pay_binance"]:
+
+    elif data in ["pay_bkash","pay_nagad","pay_binance"]:
         method = data.replace("pay_","")
         if uid in pending_payment: pending_payment[uid]["method"]=method
         pending_txn[uid] = {"method":method,"amount":pending_payment.get(uid,{}).get("amount",VIP_PRICE)}
@@ -1021,7 +1037,7 @@ async def handle_txn_id(update:Update, context:ContextTypes.DEFAULT_TYPE, uid:st
 async def handle_screenshot(update:Update, context:ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.photo: return
     user  = update.message.from_user
-photo = update.message.photo[-1].file_id
+    photo = update.message.photo[-1].file_id
     try:
         await context.bot.send_photo(
             chat_id=ADMIN_ID, photo=photo,
@@ -1113,7 +1129,8 @@ async def handle_admin_callback(query, context, data):
             "Broadcast:\n"
             "Admin panel → Admin Message → সব user কে message"
         )
-elif data=="admin_broadcast":
+
+    elif data=="admin_broadcast":
         admin_set_mode[str(ADMIN_ID)] = "broadcast"
         await query.edit_message_text(
             "📢 সব user কে পাঠাতে চাও?\n\n"
@@ -1171,8 +1188,6 @@ async def owner_assistant(update:Update, context:ContextTypes.DEFAULT_TYPE):
             f"💵 মোট আয়      : {total_income}৳\n\n"
             "প্রশ্ন করতে: /me [প্রশ্ন]"
         ); return
-    if not GROQ_KEY:
-        await update.message.reply_text("⚠️ GROQ_KEY সেট করা নেই।"); return
     sys_p = (f"তুমি Jarvis — Wafi এর personal assistant। বাংলায় সম্মানের সাথে কথা বলো। "
              f"Bot stats: user={total_users}, vip={active_vip}, আয়={total_income}৳")
     try:
@@ -1218,6 +1233,8 @@ async def reply(update:Update, context:ContextTypes.DEFAULT_TYPE):
     if int(uid)==ADMIN_ID and admin_set_mode.get(uid)=="broadcast":
         admin_set_mode.pop(uid,None)
         users = load_json(USER_FILE)
+        sent=0
+        # ✅ Broadcast — gather parallel sends
         async def _send(tid):
             try:
                 await context.bot.send_message(chat_id=int(tid), text=f"📢 Admin Message:\n\n{msg}")
@@ -1290,9 +1307,9 @@ async def voice_reply(update:Update, context:ContextTypes.DEFAULT_TYPE):
 # =========================
 def main():
     app = (
-ApplicationBuilder()
+        ApplicationBuilder()
         .token(TOKEN)
-        .concurrent_updates(True)
+        .concurrent_updates(True)   # ✅ একসাথে সব user handle
         .build()
     )
     app.add_handler(CommandHandler("start",      start))
@@ -1307,8 +1324,8 @@ ApplicationBuilder()
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply))
     app.add_handler(MessageHandler(filters.VOICE, voice_reply))
-    print("✅ Claw VIP Bot চালু! [Railway 24/7 Mode]")
+    print("Claw VIP Bot ON! 🔥 [High-Concurrency Mode]")
     app.run_polling(drop_pending_updates=True)
 
-if name == "main":
+if __name__ == "__main__":
     main()
